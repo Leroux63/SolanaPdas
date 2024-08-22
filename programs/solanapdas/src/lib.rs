@@ -8,11 +8,15 @@ pub mod solanapdas {
 
     pub fn create(ctx: Context<Create>, name: String) -> Result<()> {
         let bank = &mut ctx.accounts.bank;
+        if bank.name.len() > 0 {
+            return Err(ProgramError::AccountAlreadyInitialized.into());
+        }
         bank.name = name;
         bank.balance = 0;
         bank.owner = *ctx.accounts.user.key;
         Ok(())
     }
+    
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         let txn = anchor_lang::solana_program::system_instruction::transfer(
@@ -27,25 +31,40 @@ pub mod solanapdas {
                 ctx.accounts.bank.to_account_info(),
             ],
         )?;
-        (&mut ctx.accounts.bank).balance += amount;
+        // Met à jour le solde dans la structure de données du compte bancaire
+        let bank = &mut ctx.accounts.bank;
+        bank.balance += amount;
         Ok(())
     }
+    
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         let bank = &mut ctx.accounts.bank;
-        let user = &mut ctx.accounts.user;
-        if bank.owner != user.key() {
+        let user = &ctx.accounts.user;
+        
+        // Vérifier que l'utilisateur est le propriétaire du compte bancaire
+        if bank.owner != *user.key {
             return Err(ProgramError::IncorrectProgramId.into());
         }
         
+        // Vérifier si le compte bancaire a suffisamment de fonds
         let rent = Rent::get()?.minimum_balance(bank.to_account_info().data_len());
-        if **bank.to_account_info().lamports.borrow() - rent < amount {
+        let bank_balance = **bank.to_account_info().lamports.borrow();
+        if bank_balance - rent < amount {
             return Err(ProgramError::InsufficientFunds.into());
         }
+        
+        // Effectuer le retrait
         **bank.to_account_info().try_borrow_mut_lamports()? -= amount;
         **user.to_account_info().try_borrow_mut_lamports()? += amount;
+        
+        // Met à jour le solde dans la structure de données du compte bancaire
+        bank.balance -= amount;
+    
         Ok(())
     }
+    
+    
 }
 
 #[derive(Accounts)]
